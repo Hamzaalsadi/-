@@ -1,24 +1,513 @@
-# Compiled class file
-*.class
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>الهجوم التكتيكي</title>
+    <style>
+        html, body { margin: 0; padding: 0; overflow: hidden; width: 100%; height: 100%; background-color: #000; }
+        #game-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
+        canvas { display: block; width: 100%; height: 100%; }
+        .menu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.8); display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; z-index: 10; font-family: 'Tahoma', sans-serif; color: #fff; }
+        .menu h1 { font-size: 3em; color: #00ffff; text-shadow: 0 0 15px #00ffff; margin-bottom: 20px; }
+        .menu p { font-size: 1.5em; margin-bottom: 30px; }
+        #pause-menu h1 { font-size: 2.5em; margin-bottom: 0; }
+        .button { padding: 15px 30px; font-size: 1.5em; background-color: #00ffff; color: #000; border: none; border-radius: 5px; cursor: pointer; margin: 10px; transition: all 0.2s; box-shadow: 0 0 10px #00ffff; }
+        .button:hover { background-color: #fff; box-shadow: 0 0 20px #fff; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
 
-# Log file
-*.log
+<div id="game-container">
+    <canvas id="gameCanvas"></canvas>
+    <div id="main-menu" class="menu">
+        <h1>الهجوم التكتيكي</h1>
+        <p>لكل عدو تكتيكه الخاص. كن حذرًا!</p>
+        <button id="play-button" class="button">ابــدأ المعركــة</button>
+        <button id="exit-button" class="button">الخروج إلى Google</button>
+    </div>
+    <div id="game-over-menu" class="menu hidden">
+        <h1>انتهت اللعبة</h1>
+        <p id="final-score"></p>
+        <button id="restart-button" class="button">العودة للقائمة</button>
+    </div>
+    <div id="pause-menu" class="menu hidden" style="background-color: rgba(0, 0, 0, 0.7);">
+        <h1>إضغط للإستمرار في اللعب</h1>
+    </div>
+</div>
 
-# BlueJ files
-*.ctxt
+<script>
+document.addEventListener('DOMContentLoaded', () => {
 
-# Mobile Tools for Java (J2ME)
-.mtj.tmp/
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
 
-# Package Files #
-*.jar
-*.war
-*.nar
-*.ear
-*.zip
-*.tar.gz
-*.rar
+    // =================================================================
+    // نظام الصوت
+    // =================================================================
+    let audioCtx, bgmInterval;
+    function initAudio() { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    function playSound(type) { if (!audioCtx) return; const now = audioCtx.currentTime; const osc = audioCtx.createOscillator(); const gainNode = audioCtx.createGain(); gainNode.connect(audioCtx.destination); osc.connect(gainNode); switch (type) { case 'shoot': osc.type = 'square'; osc.frequency.setValueAtTime(880, now); gainNode.gain.setValueAtTime(0.05, now); gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1); osc.start(now); osc.stop(now + 0.1); break; case 'wingman_shoot': osc.type = 'triangle'; osc.frequency.setValueAtTime(1318.51, now); gainNode.gain.setValueAtTime(0.025, now); gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.1); osc.start(now); osc.stop(now + 0.1); break; case 'enemy_shoot': osc.type = 'sine'; osc.frequency.setValueAtTime(330, now); gainNode.gain.setValueAtTime(0.04, now); gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.2); osc.start(now); osc.stop(now + 0.2); break; case 'explosion': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(220, now); osc.frequency.exponentialRampToValueAtTime(50, now + 0.3); gainNode.gain.setValueAtTime(0.125, now); gainNode.gain.linearRampToValueAtTime(0, now + 0.3); osc.start(now); osc.stop(now + 0.3); break; case 'hit': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(220, now); gainNode.gain.setValueAtTime(0.15, now); gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.5); osc.start(now); osc.stop(now + 0.5); break; case 'powerup': osc.type = 'sine'; osc.frequency.setValueAtTime(523, now); osc.frequency.linearRampToValueAtTime(1046, now + 0.2); gainNode.gain.setValueAtTime(0.25, now); gainNode.gain.linearRampToValueAtTime(0, now + 0.2); osc.start(now); osc.stop(now + 0.2); break; case 'gameOver': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, now); osc.frequency.exponentialRampToValueAtTime(50, now + 1.5); gainNode.gain.setValueAtTime(0.2, now); gainNode.gain.linearRampToValueAtTime(0, now + 1.5); osc.start(now); osc.stop(now + 1.5); break; } }
+    function startBGM() { if (bgmInterval) clearInterval(bgmInterval); const notes = [130.81, 130.81, 196.00, 130.81, 130.81, 174.61, 130.81, 164.81]; let noteIndex = 0; bgmInterval = setInterval(() => { if (!audioCtx) return; const now = audioCtx.currentTime; const osc = audioCtx.createOscillator(); const gainNode = audioCtx.createGain(); osc.connect(gainNode); gainNode.connect(audioCtx.destination); osc.type = 'sine'; osc.frequency.setValueAtTime(notes[noteIndex % notes.length], now); gainNode.gain.setValueAtTime(0.05, now); gainNode.gain.exponentialRampToValueAtTime(0.001, now + 0.4); osc.start(now); osc.stop(now + 0.4); noteIndex++; }, 500); }
+    function stopBGM() { if (bgmInterval) clearInterval(bgmInterval); }
 
-# virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
-hs_err_pid*
-replay_pid*
+    // =================================================================
+    // متغيرات اللعبة
+    // =================================================================
+    let player, bullets, enemies, enemyBullets, powerUps, particles, wingmen, tempWingmen, stars;
+    let score, playerHealth, isGameOver;
+    let keys = {};
+    let gameLoopId, autoFireInterval;
+    let isTouching = false;
+    let pendingTimeouts = [];
+    let wingman1Unlocked, wingman2Unlocked, doubleLaserUnlocked, tripleLaserUnlocked, wingmenUpgradeUnlocked;
+    let difficultyLevel;
+    let stagedUpgrades = {};
+    
+    let gameState = 'MENU';
+    let timeScale = 1.0;
+    let lastEnemySpawnTime = 0;
+
+    const PLAYER_SPEED = 7, BULLET_SPEED = 10, ENEMY_BULLET_SPEED = 4;
+    const BASE_PLAYER_FIRE_RATE = 250, BASE_ENEMY_SPEED = 0.05, BASE_ENEMY_SPAWN_RATE = 1200;
+    let ENEMY_SPAWN_RATE, ENEMY_FIRE_RATE_MODIFIER;
+    const PROXIMITY_DETONATION_DISTANCE = 50;
+    const enemySymbols = ['✼', '❍', '❃', '●', '◎', '⌬', '✧', '∘', 'ↂ', '◌', '▣', '⏣', '⎚', '⎊', '⚇', '☢', '◈', '◉', '◍'];
+
+    // =================================================================
+    // وظائف إنشاء العناصر
+    // =================================================================
+    function createPlayer() { return { x: canvas.width / 2, y: canvas.height - 60, width: 20, height: 20, speed: PLAYER_SPEED, isShielded: false, shieldTimer: 0, fireRate: BASE_PLAYER_FIRE_RATE, fireRateBoostTimer: 0, canShoot: true, laserCount: 1, isInvincible: false, invincibilityTimer: 0, bulletSizeMultiplier: 1.0 }; }
+    function createBullet(x, y, angle = 0, width = 5, height = 15) { return { x, y, width, height, speed: BULLET_SPEED, angle }; }
+    
+    function createEnemyBullet(x, y, angle = Math.PI / 2, isLarge = false, customRadius = null) { 
+        const radius = customRadius !== null ? customRadius : (isLarge ? 20 : 5);
+        return { x, y, radius: radius, speed: ENEMY_BULLET_SPEED, angle: angle }; 
+    }
+    
+    function createWingman(offsetX) { return { offsetX: offsetX, yOffset: 10, x: player.x + offsetX, y: player.y + 10, width: 15, height: 20, fireRate: 600, canShoot: true, laserCount: 1, bulletSizeMultiplier: 1.0 }; }
+    
+    function createEnemy(forceSymbol = null) {
+        const symbol = forceSymbol ? forceSymbol : enemySymbols[Math.floor(Math.random() * enemySymbols.length)];
+        let enemy = {
+            x: Math.random() < 0.5 ? -100 : canvas.width + 100,
+            y: Math.random() * (canvas.height * 0.15),
+            width: (Math.random() * 8 + 12) * 4 * (stagedUpgrades.sizeMultiplier || 1),
+            height: (Math.random() * 8 + 12) * 4 * (stagedUpgrades.sizeMultiplier || 1),
+            speed: (BASE_ENEMY_SPEED + (Math.random() * 0.05)) * (stagedUpgrades.speedMultiplier || 1),
+            speedX: (Math.random() * 0.5 + 0.8),
+            shootCooldown: (Math.random() * 750 + 750) * ENEMY_FIRE_RATE_MODIFIER,
+            lastShotTime: Date.now(),
+            targetX: Math.random() * canvas.width,
+            lastTargetUpdateTime: Date.now(),
+            targetUpdateCooldown: Math.random() * 2000 + 2000,
+            design: { symbol: symbol, color: '#FFFFFF' },
+            behaviorType: 'standard',
+            canShoot: true,
+            isVisible: true,
+            stateTimer: 180,
+        };
+
+        switch (symbol) {
+            case '❍': enemy.behaviorType = 'kamikaze'; enemy.canShoot = false; enemy.speed = 2.0; enemy.width = 52.5; enemy.height = 70; enemy.design.color = '#ff4d4d'; break;
+            case '☢': enemy.behaviorType = 'dual_shooter'; enemy.shootCooldown /= 4; break;
+            case '⎚': enemy.behaviorType = 'large_shooter'; break;
+            case '◈': enemy.behaviorType = 'sniper'; break;
+            case '◍': 
+                enemy.behaviorType = 'blinker'; 
+                enemy.speed = 0; 
+                enemy.state = 'invisible';
+                enemy.stateTimer = 60;
+                enemy.isVisible = false;
+                enemy.animationProgress = 0;
+                enemy.originalWidth = enemy.width;
+                enemy.originalColor = enemy.design.color;
+                break;
+        }
+        return enemy;
+    }
+
+    function createPowerUp(x, y, type) { return { x, y, width: 25, height: 25, speed: 1.5, type: type }; }
+    function createStar() { return { x: Math.random() * canvas.width, y: Math.random() * canvas.height, size: Math.random() * 1.5 + 0.2, speed: (Math.random() * 0.4) + 0.1, color: `rgba(255, 255, 255, ${Math.random() * 0.5 + 0.3})` }; }
+    function createParticle(x, y, color) { return { x, y, size: Math.random() * 3 + 1, speedX: Math.random() * 4 - 2, speedY: Math.random() * 4 - 2, life: 50, color }; }
+    
+    // =================================================================
+    // وظائف التحكم
+    // =================================================================
+    const handleKeyDown = (e) => keys[e.code] = true;
+    const handleKeyUp = (e) => keys[e.code] = false;
+    
+    const handleTouchStart = (e) => {
+        e.preventDefault();
+        if (isGameOver || gameState === 'PAUSED') return;
+        timeScale = 1.0;
+        isTouching = true;
+        if (!autoFireInterval) autoFireInterval = setInterval(shoot, player.fireRate);
+    };
+
+    const handleTouchMove = (e) => { e.preventDefault(); if (isTouching && e.touches[0] && !isGameOver) { player.x = e.touches[0].clientX; player.y = e.touches[0].clientY; } };
+    
+    const handleTouchEnd = (e) => {
+        e.preventDefault();
+        isTouching = false;
+        clearInterval(autoFireInterval);
+        autoFireInterval = null;
+
+        if (gameState === 'PLAYING') {
+            timeScale = 0.2;
+            setTimeout(() => {
+                if (!isTouching) {
+                    gameState = 'PAUSED';
+                    document.getElementById('pause-menu').classList.remove('hidden');
+                }
+            }, 250);
+        }
+    };
+    
+    function addGameEventListeners() { document.addEventListener('keydown', handleKeyDown); document.addEventListener('keyup', handleKeyUp); canvas.addEventListener('touchstart', handleTouchStart, { passive: false }); canvas.addEventListener('touchmove', handleTouchMove, { passive: false }); canvas.addEventListener('touchend', handleTouchEnd, { passive: false }); }
+    function removeGameEventListeners() { document.removeEventListener('keydown', handleKeyDown); document.removeEventListener('keyup', handleKeyUp); canvas.removeEventListener('touchstart', handleTouchStart); canvas.removeEventListener('touchmove', handleTouchMove); canvas.removeEventListener('touchend', handleTouchEnd); }
+
+    // =================================================================
+    // منطق اللعبة
+    // =================================================================
+    function shoot() {
+        if (player.canShoot && !isGameOver) {
+            playSound('shoot');
+            if (player.fireRateBoostTimer > 0) {
+                const playerAngles = [-0.4, -0.25, -0.12, 0, 0.12, 0.25, 0.4];
+                playerAngles.forEach(angle => bullets.push(createBullet(player.x, player.y, angle, 5 * player.bulletSizeMultiplier, 15 * player.bulletSizeMultiplier)));
+                const wingmanAngles = [-0.15, 0, 0.15];
+                tempWingmen.forEach(w => { wingmanAngles.forEach(angle => bullets.push(createBullet(w.x, w.y, angle, 4 * player.bulletSizeMultiplier, 12 * player.bulletSizeMultiplier))); });
+            } 
+            else {
+                if(player.laserCount === 1) bullets.push(createBullet(player.x, player.y, 0, 5 * player.bulletSizeMultiplier, 15 * player.bulletSizeMultiplier));
+                else if(player.laserCount === 2) { bullets.push(createBullet(player.x - 10, player.y, 0, 5 * player.bulletSizeMultiplier, 15 * player.bulletSizeMultiplier)); bullets.push(createBullet(player.x + 10, player.y, 0, 5 * player.bulletSizeMultiplier, 15 * player.bulletSizeMultiplier)); } 
+                else if(player.laserCount === 3) { bullets.push(createBullet(player.x, player.y, -0.15, 5 * player.bulletSizeMultiplier, 15 * player.bulletSizeMultiplier)); bullets.push(createBullet(player.x, player.y, 0, 5 * player.bulletSizeMultiplier, 15 * player.bulletSizeMultiplier)); bullets.push(createBullet(player.x, player.y, 0.15, 5 * player.bulletSizeMultiplier, 15 * player.bulletSizeMultiplier)); }
+            }
+            player.canShoot = false;
+            const timeoutId = setTimeout(() => { if (!isGameOver) player.canShoot = true; }, player.fireRate);
+            pendingTimeouts.push(timeoutId);
+        }
+    }
+
+    function updateDifficulty() {
+        const currentDifficultyLevel = Math.floor(score / 100);
+        if (currentDifficultyLevel > difficultyLevel) {
+            difficultyLevel = currentDifficultyLevel;
+            if(score <= 4000) ENEMY_SPAWN_RATE = BASE_ENEMY_SPAWN_RATE * Math.pow(0.97, difficultyLevel);
+            if(score <= 2000) ENEMY_FIRE_RATE_MODIFIER = Math.pow(0.98, difficultyLevel);
+        }
+
+        if (score >= 1000 && !stagedUpgrades.speed1000) { stagedUpgrades.speed1000 = true; stagedUpgrades.speedMultiplier = 1.8; playSound('powerup'); }
+        if (score >= 2000 && !stagedUpgrades.speed2000) { stagedUpgrades.speed2000 = true; stagedUpgrades.speedMultiplier = 2.2; playSound('powerup'); }
+        if (score >= 3000 && !stagedUpgrades.speed3000) { stagedUpgrades.speed3000 = true; stagedUpgrades.speedMultiplier = 2.5; playSound('powerup'); }
+        if (score >= 4000 && !stagedUpgrades.speed4000) { stagedUpgrades.speed4000 = true; stagedUpgrades.speedMultiplier = 3.0; stagedUpgrades.sizeMultiplier = 0.9; playSound('powerup'); }
+        if (score >= 5000 && !stagedUpgrades.speed5000) { stagedUpgrades.speed5000 = true; stagedUpgrades.speedMultiplier = 3.5; stagedUpgrades.sizeMultiplier = 0.88; playSound('powerup'); }
+    }
+    
+    function update() {
+        if (isGameOver) return;
+        updateDifficulty();
+
+        if (!wingman1Unlocked && score >= 400) { playSound('powerup'); wingmen.push(createWingman(35)); wingman1Unlocked = true; }
+        if (!wingman2Unlocked && score >= 700) { playSound('powerup'); wingmen.push(createWingman(-35)); wingman2Unlocked = true; }
+        if (!doubleLaserUnlocked && score >= 2000) { playSound('powerup'); player.laserCount = 2; doubleLaserUnlocked = true; }
+        if (!wingmenUpgradeUnlocked && score >= 5000) { playSound('powerup'); wingmen.forEach(w => { w.laserCount = 2; w.bulletSizeMultiplier = 1.2; }); wingmenUpgradeUnlocked = true; }
+        if (!tripleLaserUnlocked && score >= 8000) { playSound('powerup'); player.laserCount = 3; tripleLaserUnlocked = true; }
+        
+        player.bulletSizeMultiplier = 1.0 + (Math.floor(Math.min(score, 12000) / 1000) * 0.02);
+        player.fireRate = BASE_PLAYER_FIRE_RATE * Math.pow(0.999, Math.min(score, 7000) / 10);
+
+        stars.forEach(star => { star.y += star.speed * timeScale; if (star.y > canvas.height) { star.y = 0 - star.size; star.x = Math.random() * canvas.width; } });
+
+        if (keys['ArrowLeft'] || keys['KeyA']) player.x -= player.speed * timeScale;
+        if (keys['ArrowRight'] || keys['KeyD']) player.x += player.speed * timeScale;
+        if (keys['ArrowUp'] || keys['KeyW']) player.y -= player.speed * timeScale;
+        if (keys['ArrowDown'] || keys['KeyS']) player.y += player.speed * timeScale;
+        if (keys['Space']) shoot();
+
+        player.x = Math.max(player.width / 2, Math.min(canvas.width - player.width / 2, player.x));
+        player.y = Math.max(canvas.height * 0.65, Math.min(canvas.height - player.height, player.y));
+        
+        if (player.isShielded) { player.shieldTimer--; if (player.shieldTimer <= 0) player.isShielded = false; }
+        if (player.fireRateBoostTimer > 0) { player.fireRateBoostTimer--; if (player.fireRateBoostTimer <= 0) { tempWingmen = []; } }
+        if (player.isInvincible) { player.invincibilityTimer--; if(player.invincibilityTimer <= 0) player.isInvincible = false; }
+        
+        bullets.forEach((b, i) => { b.x += (Math.sin(b.angle) * b.speed) * timeScale; b.y -= (Math.cos(b.angle) * b.speed) * timeScale; if (b.y < 0 || b.x < 0 || b.x > canvas.width) bullets.splice(i, 1); });
+        enemyBullets.forEach((b, i) => { b.x += (b.speed * Math.cos(b.angle)) * timeScale; b.y += (b.speed * Math.sin(b.angle)) * timeScale; if (b.y > canvas.height || b.y < 0 || b.x < 0 || b.x > canvas.width) enemyBullets.splice(i, 1); });
+        
+        enemies.forEach((e, i) => { 
+            switch (e.behaviorType) {
+                case 'kamikaze':
+                    const dist = Math.hypot(e.x - player.x, e.y - player.y);
+                    if (dist < PROXIMITY_DETONATION_DISTANCE) { playSound('explosion'); for (let j = 0; j < 20; j++) { particles.push(createParticle(e.x, e.y, e.design.color)); } if (!player.isShielded && !player.isInvincible) { handlePlayerHit(null); } enemies.splice(i, 1); return; }
+                    const angle = Math.atan2(player.y - e.y, player.x - e.x);
+                    e.x += (Math.cos(angle) * e.speed) * timeScale; e.y += (Math.sin(angle) * e.speed) * timeScale;
+                    break;
+                case 'blinker':
+                    e.stateTimer -= timeScale;
+                    switch (e.state) {
+                        case 'invisible':
+                            if (e.stateTimer <= 0) {
+                                e.x = Math.random() * canvas.width;
+                                e.y = Math.random() * (canvas.height * 0.2);
+                                e.state = 'charging';
+                                e.stateTimer = 60;
+                                e.isVisible = true;
+                                e.animationProgress = 0;
+                            }
+                            break;
+                        case 'charging':
+                            e.animationProgress = Math.min(1, 1 - (e.stateTimer / 60));
+                            e.width = e.originalWidth * (1 + 2 * e.animationProgress);
+                            const blueChannel = 255 * (1 - e.animationProgress);
+                            e.design.color = `rgb(255, 255, ${Math.floor(blueChannel)})`;
+
+                            if (e.stateTimer <= 0) {
+                                e.state = 'firing';
+                            }
+                            break;
+                        case 'firing':
+                            playSound('enemy_shoot');
+                            const largeBulletRadius = 5 * 3;
+                            enemyBullets.push(createEnemyBullet(e.x, e.y, Math.PI / 2 - 0.3, false, largeBulletRadius));
+                            enemyBullets.push(createEnemyBullet(e.x, e.y, Math.PI / 2, false, largeBulletRadius));
+                            enemyBullets.push(createEnemyBullet(e.x, e.y, Math.PI / 2 + 0.3, false, largeBulletRadius));
+                            
+                            e.state = 'idle';
+                            e.stateTimer = 120;
+                            e.width = e.originalWidth;
+                            e.design.color = e.originalColor;
+                            break;
+                        case 'idle':
+                            if (e.stateTimer <= 0) {
+                                e.state = 'invisible';
+                                e.isVisible = false;
+                                e.stateTimer = 60;
+                            }
+                            break;
+                    }
+                    break;
+                default:
+                    if (Date.now() - e.lastTargetUpdateTime > e.targetUpdateCooldown) { e.targetX = Math.random() * canvas.width; e.lastTargetUpdateTime = Date.now(); }
+                    if (e.x < e.targetX) { e.x = Math.min(e.targetX, e.x + e.speedX * timeScale); } else { e.x = Math.max(e.targetX, e.x - e.speedX * timeScale); }
+                    e.y += e.speed * timeScale;
+                    break;
+            }
+
+            if (e.behaviorType !== 'blinker' && e.canShoot && Date.now() - e.lastShotTime > e.shootCooldown && e.y > 0) {
+                playSound('enemy_shoot');
+                if (e.behaviorType === 'sniper') {
+                    const angleToPlayer = Math.atan2(player.y - e.y, player.x - e.x);
+                    enemyBullets.push(createEnemyBullet(e.x, e.y, angleToPlayer));
+                } else if (e.behaviorType === 'dual_shooter') { enemyBullets.push(createEnemyBullet(e.x - 20, e.y)); enemyBullets.push(createEnemyBullet(e.x + 20, e.y)); } 
+                else if (e.behaviorType === 'large_shooter') { enemyBullets.push(createEnemyBullet(e.x, e.y, Math.PI / 2, true)); }
+                else if (e.behaviorType === 'standard') { enemyBullets.push(createEnemyBullet(e.x, e.y)); }
+                e.lastShotTime = Date.now();
+            }
+
+            if (e.y > canvas.height + e.height) { enemies.splice(i, 1); }
+        });
+
+        powerUps.forEach((p, i) => { p.y += p.speed * timeScale; if (p.y > canvas.height) powerUps.splice(i, 1); });
+        particles.forEach((p, i) => { p.x += p.speedX * timeScale; p.y += p.speedY * timeScale; p.life--; if (p.life <= 0) particles.splice(i, 1); });
+        
+        wingmen.forEach(w => { w.x = player.x + w.offsetX; w.y = player.y + w.yOffset; if (w.canShoot && !isGameOver) { w.canShoot = false; playSound('wingman_shoot'); if(w.laserCount === 1) bullets.push(createBullet(w.x, w.y, 0, 3 * w.bulletSizeMultiplier, 10 * w.bulletSizeMultiplier)); else if(w.laserCount === 2) { bullets.push(createBullet(w.x-5, w.y, 0, 3 * w.bulletSizeMultiplier, 10 * w.bulletSizeMultiplier)); bullets.push(createBullet(w.x+5, w.y, 0, 3 * w.bulletSizeMultiplier, 10 * w.bulletSizeMultiplier)); } const timeoutId = setTimeout(() => { w.canShoot = true; }, w.fireRate); pendingTimeouts.push(timeoutId); } });
+        tempWingmen.forEach(w => { w.x = player.x + w.offsetX; w.y = player.y + w.yOffset; });
+
+        if (Date.now() - lastEnemySpawnTime > ENEMY_SPAWN_RATE) {
+            lastEnemySpawnTime = Date.now();
+            const firstEnemy = createEnemy();
+            enemies.push(firstEnemy);
+            if (firstEnemy.design.symbol === '❍') {
+                enemies.push(createEnemy('❍'));
+            }
+        }
+    }
+    
+    function handlePlayerHit(enemyObject) {
+        if (!player.isShielded && !player.isInvincible) {
+            playSound('hit');
+            playerHealth--;
+            if (playerHealth <= 0) {
+                gameOver();
+            } else {
+                player.isInvincible = true;
+                player.invincibilityTimer = 420;
+            }
+        }
+        if (enemyObject) {
+                playSound('explosion');
+                for (let i = 0; i < 15; i++) particles.push(createParticle(enemyObject.x, enemyObject.y, enemyObject.design ? enemyObject.design.color : '#cccccc'));
+        }
+    }
+
+    function checkCollisions() {
+        if (isGameOver) return;
+        bullets.forEach((b, bi) => {
+            enemies.forEach((e, ei) => {
+                if(bi >= bullets.length || !e || !e.isVisible) return;
+                const dist = Math.hypot(b.x - e.x, b.y - e.y);
+                if (dist < e.width / 2 + b.width) {
+                    playSound('explosion'); for (let i = 0; i < 15; i++) particles.push(createParticle(e.x, e.y, e.design.color));
+                    bullets.splice(bi, 1); enemies.splice(ei, 1); score += 10;
+                    const dropRate = (score >= 1500) ? 0.02 : 0.05;
+                    const ammoDropRate = (score >= 1500) ? 0.02 : 0.04;
+                    const dropRoll = Math.random();
+                    if (dropRoll < ammoDropRate) { powerUps.push(createPowerUp(e.x, e.y, 'ammo')); } 
+                    else if (dropRoll < ammoDropRate + dropRate) { powerUps.push(createPowerUp(e.x, e.y, 'shield')); }
+                    else if (dropRoll < ammoDropRate + dropRate * 2) { powerUps.push(createPowerUp(e.x, e.y, 'health')); }
+                }
+            });
+        });
+        
+        enemies.forEach((e, i) => {
+            if (!e || !e.isVisible) return;
+            const dist = Math.hypot(player.x - e.x, player.y - e.y);
+            if (dist < e.width / 2 + player.width / 2) { 
+                handlePlayerHit(e);
+                enemies.splice(i, 1);
+            }
+        });
+        enemyBullets.forEach((eb, i) => {
+            const dist = Math.hypot(player.x - eb.x, player.y - eb.y);
+            if (dist < eb.radius + player.width / 2) {
+                handlePlayerHit(null);
+                enemyBullets.splice(i, 1);
+            }
+        });
+
+        powerUps.forEach((p, i) => {
+            const dist = Math.hypot(player.x - p.x, player.y - p.y);
+            if (dist < p.width / 2 + player.width / 2) { playSound('powerup'); applyPowerUp(p.type); powerUps.splice(i, 1); }
+        });
+    }
+
+    function applyPowerUp(type) {
+        if (type === 'health') { if (playerHealth < 5) playerHealth++; }
+        else if (type === 'ammo') { player.fireRateBoostTimer = 960; tempWingmen = []; tempWingmen.push(createWingman(60)); tempWingmen.push(createWingman(-60)); } 
+        else if (type === 'shield') { player.isShielded = true; player.shieldTimer = 960; }
+    }
+    
+    // =================================================================
+    // وظائف الرسم
+    // =================================================================
+    function drawPlayer(p) { 
+        if (p.isInvincible && Math.floor(p.invincibilityTimer / 6) % 2 === 0) { return; }
+        if (p.isShielded) { ctx.beginPath(); ctx.arc(p.x, p.y, p.width + 5, 0, Math.PI * 2); const isFlashing = p.shieldTimer < 300 && p.shieldTimer % 20 < 10; if (!isFlashing) { const shieldAlpha = Math.max(0.1, (p.shieldTimer / 960) * 0.4); ctx.fillStyle = `rgba(0, 255, 255, ${shieldAlpha})`; ctx.strokeStyle = `rgba(0, 255, 255, ${shieldAlpha * 2})`; ctx.lineWidth = 2; ctx.fill(); ctx.stroke(); } } ctx.beginPath(); ctx.moveTo(p.x, p.y - p.height / 2); ctx.lineTo(p.x - p.width / 2, p.y + p.height / 2); ctx.lineTo(p.x + p.width / 2, p.y + p.height / 2); ctx.closePath(); ctx.fillStyle = '#cccccc'; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke(); ctx.fill(); ctx.beginPath(); ctx.moveTo(p.x - p.width/4, p.y + p.height/2); ctx.lineTo(p.x + p.width/4, p.y + p.height/2); ctx.lineTo(p.x, p.y + p.height/2 + Math.random() * 10 + 3); ctx.closePath(); ctx.fillStyle = player.fireRateBoostTimer > 0 ? '#ffd700' : '#ffa500'; ctx.fill(); 
+    }
+    function drawWingman(w) { ctx.fillStyle = '#a0a0ff'; ctx.strokeStyle = '#d0d0ff'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(w.x, w.y - w.height / 2); ctx.lineTo(w.x - w.width / 2, w.y + w.height / 2); ctx.lineTo(w.x + w.width / 2, w.y + w.height / 2); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    function drawTempWingman(w) { ctx.fillStyle = '#ffd700'; ctx.strokeStyle = '#ffff8d'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(w.x, w.y - w.height / 2); ctx.lineTo(w.x - w.width / 2, w.y + w.height / 2); ctx.lineTo(w.x + w.width / 2, w.y + w.height / 2); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+    function drawEnemy(e) { if(!e.isVisible) return; ctx.fillStyle = e.design.color; ctx.font = `${e.width}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(e.design.symbol, e.x, e.y); }
+    function drawBullet(b) { ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.angle); ctx.fillStyle = '#00ffff'; ctx.shadowBlur = 10; ctx.shadowColor = '#00ffff'; ctx.fillRect(-b.width / 2, 0, b.width, b.height); ctx.restore(); ctx.shadowBlur = 0; }
+    function drawEnemyBullet(b) { ctx.fillStyle = '#ff4d4d'; ctx.shadowBlur = 5; ctx.shadowColor = '#ff4d4d'; ctx.beginPath(); ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0; }
+    function drawPowerUp(p) { ctx.beginPath(); ctx.arc(p.x, p.y, p.width / 2, 0, Math.PI * 2); if (p.type === 'health') { ctx.fillStyle = 'rgba(255, 0, 0, 0.5)'; ctx.strokeStyle = '#ff0000';} else if (p.type === 'ammo') { ctx.fillStyle = 'rgba(255, 255, 0, 0.5)'; ctx.strokeStyle = '#ffff00';} else if (p.type === 'shield') { ctx.fillStyle = 'rgba(0, 255, 255, 0.5)'; ctx.strokeStyle = '#00ffff';} ctx.fill(); ctx.lineWidth = 2; ctx.stroke(); ctx.fillStyle = ctx.strokeStyle; ctx.font = 'bold 16px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; let symbol = (p.type === 'health') ? '❤️' : (p.type === 'ammo') ? '⚡' : '⛨'; ctx.fillText(symbol, p.x, p.y); }
+    function drawUI() { ctx.fillStyle = 'white'; ctx.font = '24px Tahoma'; ctx.textAlign = 'left'; ctx.fillText(`النقاط: ${score}`, 20, 35); ctx.textAlign = 'right'; ctx.fillStyle = '#ff4d4d'; ctx.fillText(`❤️ ${playerHealth}`, canvas.width - 20, 35); }
+    function draw() { 
+        let gradient = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 0, canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) / 1.5);
+        gradient.addColorStop(0, '#1c1c3c');
+        gradient.addColorStop(1, '#0c0c1e');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        stars.forEach(star => { ctx.fillStyle = star.color; ctx.fillRect(star.x, star.y, star.size, star.size); });
+        particles.forEach(p => { ctx.fillStyle = `${p.color}aa`; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 2 * Math.PI); ctx.fill(); }); 
+        powerUps.forEach(drawPowerUp); 
+        enemyBullets.forEach(drawEnemyBullet); 
+        bullets.forEach(drawBullet); 
+        enemies.forEach(drawEnemy); 
+        wingmen.forEach(drawWingman); 
+        tempWingmen.forEach(drawTempWingman); 
+        drawPlayer(player); 
+        drawUI(); 
+    }
+    
+    // =================================================================
+    // إدارة حالة اللعبة
+    // =================================================================
+    function clearAllTimeouts() { pendingTimeouts.forEach(id => clearTimeout(id)); pendingTimeouts = []; clearInterval(autoFireInterval); autoFireInterval = null; stopBGM(); }
+
+    function startGame() {
+        initAudio(); startBGM();
+        gameState = 'PLAYING';
+        document.getElementById('main-menu').classList.add('hidden');
+        document.getElementById('game-over-menu').classList.add('hidden');
+        document.getElementById('pause-menu').classList.add('hidden');
+        resizeCanvas(); clearAllTimeouts();
+        
+        stars = [];
+        for (let i = 0; i < 80; i++) {
+            stars.push(createStar());
+        }
+
+        isGameOver = false; player = createPlayer();
+        bullets = []; enemies = []; enemyBullets = []; powerUps = []; particles = []; wingmen = []; tempWingmen = [];
+        score = 0; playerHealth = 3; keys = {};
+        wingman1Unlocked = false; wingman2Unlocked = false; doubleLaserUnlocked = false; tripleLaserUnlocked = false; wingmenUpgradeUnlocked = false;
+        difficultyLevel = 0;
+        ENEMY_FIRE_RATE_MODIFIER = 1.0;
+        ENEMY_SPAWN_RATE = BASE_ENEMY_SPAWN_RATE;
+        stagedUpgrades = {};
+        lastEnemySpawnTime = Date.now();
+
+        addGameEventListeners(); gameLoop();
+    }
+    
+    function gameLoop() { 
+        if (isGameOver) return;
+        
+        if (gameState !== 'PAUSED') {
+            update();
+            checkCollisions();
+        }
+        
+        draw();
+        gameLoopId = requestAnimationFrame(gameLoop);
+    }
+    function gameOver() { if (isGameOver) return; isGameOver = true; gameState = 'GAMEOVER'; playSound('gameOver'); stopBGM(); cancelAnimationFrame(gameLoopId); clearAllTimeouts(); removeGameEventListeners(); document.getElementById('final-score').innerText = `نقاطك النهائية: ${score}`; document.getElementById('game-over-menu').classList.remove('hidden'); }
+    
+    // --- دالة جديدة لطلب ملء الشاشة ---
+    function enterFullScreen() {
+        const elem = document.documentElement;
+        if (elem.requestFullscreen) {
+            elem.requestFullscreen().catch(err => console.error(err));
+        } else if (elem.mozRequestFullScreen) { // Firefox
+            elem.mozRequestFullScreen();
+        } else if (elem.webkitRequestFullscreen) { // Chrome, Safari & Opera
+            elem.webkitRequestFullscreen();
+        } else if (elem.msRequestFullscreen) { // IE/Edge
+            elem.msRequestFullscreen();
+        }
+    }
+
+    const playButton = document.getElementById('play-button');
+    const exitButton = document.getElementById('exit-button');
+    const restartButton = document.getElementById('restart-button');
+    const pauseMenu = document.getElementById('pause-menu');
+
+    // --- تعديل زر البدء ---
+    playButton.addEventListener('click', () => {
+        enterFullScreen(); // طلب ملء الشاشة
+        startGame(); // بدء اللعبة
+    });
+    
+    exitButton.addEventListener('click', () => { window.location.href = 'https://www.google.com'; });
+    restartButton.addEventListener('click', () => { gameState = 'MENU'; document.getElementById('game-over-menu').classList.add('hidden'); document.getElementById('main-menu').classList.remove('hidden'); });
+    
+    pauseMenu.addEventListener('click', () => {
+        if (gameState === 'PAUSED') {
+            pauseMenu.classList.add('hidden');
+            gameState = 'PLAYING';
+            timeScale = 0.2;
+            setTimeout(() => { timeScale = 1.0; }, 200);
+        }
+    });
+
+});
+</script>
+</body>
+</html>
